@@ -1,4 +1,4 @@
-[invite]: https://discord.com/api/oauth2/authorize?client_id=885995691942477864&scope=bots.commands
+[invite]: https://discord.com/api/oauth2/authorize?client_id=885995691942477864&scope=applications.commands
 
 <img align="right" src="https://raw.githubusercontent.com/twitter/twemoji/master/assets/svg/1f3b2.svg" height="150" width="150" alt="Dice Logo">
 
