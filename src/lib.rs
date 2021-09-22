@@ -96,17 +96,7 @@ pub async fn main(req: Request, env: Env) -> Result<Response> {
 }
 
 fn handle_button(button: Box<MessageComponentInteraction>) -> Result<Response> {
-    let roll = Roll::from_custom_id(button.data.custom_id);
-    let id = if let Some(user) = button.user {
-        user.id.0
-    } else {
-        button.member.unwrap().user.unwrap().id.0
-    };
-    return if roll.is_from(id) {
-        build_response_ok(roll)
-    } else {
-        build_response_err("You are not allowed to do that!".to_string())
-    };
+    build_response_ok(Roll::from_custom_id(button.data.custom_id))
 }
 
 fn handle_command(command: Box<ApplicationCommand>) -> Result<Response> {

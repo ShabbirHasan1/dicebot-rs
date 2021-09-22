@@ -5,20 +5,14 @@ use twilight_model::application::interaction::application_command::CommandDataOp
 use twilight_model::application::interaction::ApplicationCommand;
 
 pub struct Roll {
-    id: u64,
     die: u16,
     count: u16,
     modifier: u16,
-    gm: u8,
+    gm: u16,
 }
 
 impl Roll {
     pub fn from_command(command: Box<ApplicationCommand>) -> Result<Roll, String> {
-        let id = if let Some(user) = command.user {
-            user.id.0
-        } else {
-            command.member.unwrap().user.unwrap().id.0
-        };
         let mut die = 0;
         let mut count = 1;
         let mut modifier = 0;
@@ -71,14 +65,13 @@ impl Roll {
                 }
                 CommandDataOption::Boolean { name, value } => {
                     if name == "gm" {
-                        gm = value as u8
+                        gm = value as u16
                     }
                 }
                 _ => {}
             }
         }
         Ok(Roll {
-            id,
             die,
             count,
             modifier,
@@ -87,35 +80,29 @@ impl Roll {
     }
 
     // Custom ID Format
-    // 0000000000000000000000000000000000000000000000000000000000000000 | 0000000     | 0000          | 0000             | 0
-    // Discord ID (64 bit)                                              | Die (7 bit) | Count (4 bit) | Modifier (4 bit) | GM (1 bit)
+    // 0000000     | 0000          | 0000             | 0
+    // Die (7 bit) | Count (4 bit) | Modifier (4 bit) | GM (1 bit)
 
     pub fn to_custom_id(&self) -> String {
-        let mut custom_id = (self.id as u128) << 16;
-        custom_id += (self.die as u128 - 1 & 127) << 9;
-        custom_id += (self.count as u128 - 1 & 15) << 5;
-        custom_id += (self.modifier as u128 & 15) << 1;
-        custom_id += self.gm as u128;
+        let custom_id = ((self.die - 1 & 0x7F) << 9)
+            + ((self.count - 1 & 0x0F) << 5)
+            + ((self.modifier & 0x0F) << 1)
+            + self.gm;
         custom_id.to_string()
     }
 
     pub fn from_custom_id(custom_id: String) -> Roll {
-        let custom_id: u128 = custom_id.parse().unwrap();
+        let custom_id: u16 = custom_id.parse().unwrap();
         Roll {
-            id: (custom_id >> 16) as u64,
-            die: ((custom_id >> 9 & 127) + 1) as u16,
-            count: ((custom_id >> 5 & 15) + 1) as u16,
-            modifier: (custom_id >> 1 & 15) as u16,
-            gm: (custom_id & 1) as u8,
+            die: (custom_id >> 9 & 0x7F) + 1,
+            count: (custom_id >> 5 & 0x0F) + 1,
+            modifier: custom_id >> 1 & 0x0F,
+            gm: custom_id & 1,
         }
     }
 
     pub fn ephemeral(&self) -> bool {
         self.gm != 0
-    }
-
-    pub fn is_from(&self, id: u64) -> bool {
-        self.id == id
     }
 }
 
