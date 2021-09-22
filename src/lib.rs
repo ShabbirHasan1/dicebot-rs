@@ -1,14 +1,19 @@
+use crate::roll::Roll;
 use ed25519_dalek::{PublicKey, Signature, Verifier};
-use rand::Rng;
-use regex::Regex;
 use std::convert::TryInto;
 use twilight_embed_builder::EmbedBuilder;
 use twilight_model::application::callback::{CallbackData, InteractionResponse};
-use twilight_model::application::interaction::application_command::CommandDataOption;
-use twilight_model::application::interaction::{ApplicationCommand, Interaction};
+use twilight_model::application::component::button::ButtonStyle;
+use twilight_model::application::component::{ActionRow, Component};
+use twilight_model::application::component::{Button, ComponentType};
+use twilight_model::application::interaction::{
+    ApplicationCommand, Interaction, MessageComponentInteraction,
+};
 use twilight_model::channel::message::MessageFlags;
+use twilight_model::channel::ReactionType;
 use worker::*;
 
+mod roll;
 mod utils;
 
 fn log_request(req: &Request) {
@@ -69,6 +74,14 @@ pub async fn main(req: Request, env: Env) -> Result<Response> {
                         Interaction::ApplicationCommand(command) => {
                             return handle_command(command);
                         }
+                        Interaction::MessageComponent(component) => {
+                            match component.data.component_type {
+                                ComponentType::Button => {
+                                    return handle_button(component);
+                                }
+                                _ => {}
+                            }
+                        }
                         _ => {}
                     }
                 }
@@ -82,136 +95,75 @@ pub async fn main(req: Request, env: Env) -> Result<Response> {
         .await
 }
 
+fn handle_button(button: Box<MessageComponentInteraction>) -> Result<Response> {
+    let roll = Roll::from_custom_id(button.data.custom_id);
+    let id = if let Some(user) = button.user {
+        user.id.0
+    } else {
+        button.member.unwrap().user.unwrap().id.0
+    };
+    return if roll.is_from(id) {
+        build_response_ok(roll)
+    } else {
+        build_response_err("You are not allowed to do that!".to_string())
+    };
+}
+
 fn handle_command(command: Box<ApplicationCommand>) -> Result<Response> {
     if command.data.name == "roll" {
-        let mut die = 0;
-        let mut count = 1;
-        let mut modifier = 0;
-        let mut gm = false;
-        for option in command.data.options {
-            match option {
-                CommandDataOption::String { name, value } => {
-                    if name == "dice" {
-                        let re = Regex::new(r"^(\d*)[dD](\d+)$").unwrap();
-                        if let Some(caps) = re.captures(value.as_str()) {
-                            let c = caps.get(1).unwrap().as_str();
-                            if !c.is_empty() {
-                                count = c.parse().unwrap();
-                                if count < 1 {
-                                    return build_response(
-                                        String::from("You can't roll less than one die!"),
-                                        true,
-                                    );
-                                }
-                                if count > 8 {
-                                    return build_response(
-                                        String::from("You can't roll more than eight dice!"),
-                                        true,
-                                    );
-                                }
-                            }
-                            die = caps.get(2).unwrap().as_str().parse().unwrap();
-                            if die < 4 {
-                                return build_response(
-                                    String::from("Your dice can't have less than four faces!"),
-                                    true,
-                                );
-                            }
-                            if die > 120 {
-                                return build_response(
-                                    String::from("Your dice can't have more than 120 faces!"),
-                                    true,
-                                );
-                            }
-                        } else {
-                            return build_response(String::from("Please enter the dice you want to roll, e. g. `1d20` or `4d8`!"), true);
-                        }
-                    }
-                }
-                CommandDataOption::Integer { name, value } => {
-                    if name == "modifier" {
-                        if value <= 0 {
-                            return build_response(
-                                String::from("Your modifier can't be less than one!"),
-                                true,
-                            );
-                        }
-                        modifier = value
-                    }
-                }
-                CommandDataOption::Boolean { name, value } => {
-                    if name == "gm" {
-                        gm = value
-                    }
-                }
-                CommandDataOption::SubCommand { .. } => {}
-            }
-        }
-        let mut rng = rand::thread_rng();
-        return if count == 1 {
-            let result = rng.gen_range(1..die + 1);
-            if modifier != 0 {
-                build_response(
-                    format!(
-                        "Your result is **{} *+ {}* = {}**",
-                        result,
-                        modifier,
-                        result + modifier
-                    ),
-                    gm,
-                )
-            } else {
-                build_response(format!("Your result is **{}**", result), gm)
-            }
-        } else {
-            let mut results: Vec<String> = Vec::new();
-            let mut result = 0;
-            for _ in 0..count {
-                let throw = rng.gen_range(1..die + 1);
-                results.push(throw.to_string());
-                result += throw;
-            }
-            if modifier != 0 {
-                build_response(
-                    format!(
-                        "Your results are **({}) *+ {}* = {}**",
-                        results.join(" + "),
-                        modifier,
-                        result + modifier
-                    ),
-                    gm,
-                )
-            } else {
-                build_response(
-                    format!(
-                        "Your results are **({}) = {}**",
-                        results.join(" + "),
-                        result
-                    ),
-                    gm,
-                )
-            }
+        let roll = Roll::from_command(command);
+        return match roll {
+            Ok(roll) => build_response_ok(roll),
+            Err(err) => build_response_err(err),
         };
     }
     Response::error("Bad Request", 400)
 }
 
-fn build_response(content: String, ephemeral: bool) -> Result<Response> {
-    let mut flags = None;
-    if ephemeral {
-        flags = Some(MessageFlags::EPHEMERAL);
-    }
+fn build_response_err(err: String) -> Result<Response> {
     Response::from_json(&InteractionResponse::ChannelMessageWithSource(
         CallbackData {
             allowed_mentions: None,
             components: None,
             content: None,
             embeds: vec![EmbedBuilder::new()
-                .description(content)
+                .description(err)
                 .color(0xdd2e44)
                 .build()
                 .expect("Invalid embed")],
-            flags,
+            flags: Some(MessageFlags::EPHEMERAL),
+            tts: None,
+        },
+    ))
+}
+
+fn build_response_ok(roll: Roll) -> Result<Response> {
+    Response::from_json(&InteractionResponse::ChannelMessageWithSource(
+        CallbackData {
+            allowed_mentions: None,
+            components: Some(vec![Component::ActionRow(ActionRow {
+                components: vec![Component::Button(Button {
+                    custom_id: Some(roll.to_custom_id()),
+                    disabled: false,
+                    emoji: Some(ReactionType::Unicode {
+                        name: "\u{1F3B2}".to_string(),
+                    }),
+                    label: Some("Reroll".to_string()),
+                    style: ButtonStyle::Secondary,
+                    url: None,
+                })],
+            })]),
+            content: None,
+            embeds: vec![EmbedBuilder::new()
+                .description(roll.to_string())
+                .color(0xdd2e44)
+                .build()
+                .unwrap()],
+            flags: if roll.ephemeral() {
+                Some(MessageFlags::EPHEMERAL)
+            } else {
+                None
+            },
             tts: None,
         },
     ))
