@@ -33,40 +33,26 @@ pub async fn main(req: Request, env: Env) -> Result<Response> {
     Router::new(())
         .post_async("/interactions", |mut req, ctx| async move {
             let public_key = PublicKey::from_bytes(
-                hex::decode(
-                    ctx.secret("PUBLIC_KEY")
-                        .expect("Missing public key")
-                        .to_string(),
-                )
-                .expect("Invalid public key")
-                .as_slice(),
+                hex::decode(ctx.secret("PUBLIC_KEY")?.to_string())
+                    .expect("Invalid public key")
+                    .as_slice(),
             )
             .expect("Invalid public key");
             let signature = Signature::new(
-                hex::decode(
-                    req.headers()
-                        .get("X-Signature-Ed25519")
-                        .expect("Missing signature")
-                        .unwrap(),
-                )
-                .expect("Invalid signature")
-                .as_slice()
-                .try_into()
-                .unwrap(),
+                hex::decode(req.headers().get("X-Signature-Ed25519")?.unwrap())
+                    .expect("Invalid signature")
+                    .as_slice()
+                    .try_into()
+                    .unwrap(),
             );
-            let timestamp = req
-                .headers()
-                .get("X-Signature-Timestamp")
-                .expect("Missing timestamp")
-                .unwrap();
-            let body = req.bytes().await.expect("Missing request body");
+            let timestamp = req.headers().get("X-Signature-Timestamp")?.unwrap();
+            let body = req.bytes().await?;
             match public_key.verify(
                 &[timestamp.as_bytes(), body.as_slice()].concat(),
                 &signature,
             ) {
                 Ok(_) => {
-                    let interaction: Interaction =
-                        serde_json::from_slice(body.as_slice()).expect("Invalid request body");
+                    let interaction: Interaction = serde_json::from_slice(body.as_slice())?;
                     match interaction {
                         Interaction::Ping(_) => {
                             return Response::from_json(&InteractionResponse::Pong);
@@ -96,7 +82,10 @@ pub async fn main(req: Request, env: Env) -> Result<Response> {
 }
 
 fn handle_button(button: Box<MessageComponentInteraction>) -> Result<Response> {
-    build_response_ok(Roll::from_custom_id(button.data.custom_id))
+    return match Roll::from_custom_id(button.data.custom_id) {
+        Ok(roll) => build_response_ok(roll),
+        Err(err) => build_response_err(format!("Something went wrong: {}", err)),
+    };
 }
 
 fn handle_command(command: Box<ApplicationCommand>) -> Result<Response> {
@@ -120,7 +109,7 @@ fn build_response_err(err: String) -> Result<Response> {
                 .description(err)
                 .color(0xdd2e44)
                 .build()
-                .expect("Invalid embed")],
+                .unwrap()],
             flags: Some(MessageFlags::EPHEMERAL),
             tts: None,
         },

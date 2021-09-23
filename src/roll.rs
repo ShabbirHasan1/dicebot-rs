@@ -1,6 +1,7 @@
 use rand::Rng;
 use regex::Regex;
 use std::fmt::{Display, Formatter};
+use std::num::ParseIntError;
 use twilight_model::application::interaction::application_command::CommandDataOption;
 use twilight_model::application::interaction::ApplicationCommand;
 
@@ -25,28 +26,26 @@ impl Roll {
                         if let Some(caps) = re.captures(value.as_str()) {
                             let c = caps.get(1).unwrap().as_str();
                             if !c.is_empty() {
-                                let cc = c.parse().unwrap();
-                                if cc < 1 {
+                                count = c.parse().unwrap();
+                                if count < 1 {
                                     return Err("You can't roll less than one die!".to_string());
                                 }
-                                if cc > 8 {
+                                if count > 8 {
                                     return Err("You can't roll more than eight dice!".to_string());
                                 }
-                                count = cc;
                             }
-                            let dd = caps.get(2).unwrap().as_str().parse().unwrap();
-                            if dd < 4 {
+                            die = caps.get(2).unwrap().as_str().parse().unwrap();
+                            if die < 4 {
                                 return Err(
                                     "Your dice can't have less than four faces!".to_string()
                                 );
                             }
-                            if dd > 120 {
+                            if die > 120 {
                                 return Err("Your dice can't have more than 120 faces!".to_string());
                             }
-                            die = dd;
                         } else {
                             return Err(
-                                "Please enter the dice you want to roll, e. g. `1d20` or `4d8`!"
+                                "Please enter the dice you want to roll, e.g. `1d20` or `4d8`!"
                                     .to_string(),
                             );
                         }
@@ -91,14 +90,14 @@ impl Roll {
         custom_id.to_string()
     }
 
-    pub fn from_custom_id(custom_id: String) -> Roll {
-        let custom_id: u16 = custom_id.parse().unwrap();
-        Roll {
+    pub fn from_custom_id(custom_id: String) -> Result<Roll, ParseIntError> {
+        let custom_id: u16 = custom_id.parse()?;
+        Ok(Roll {
             die: (custom_id >> 9 & 0x7F) + 1,
             count: (custom_id >> 5 & 0x0F) + 1,
             modifier: custom_id >> 1 & 0x0F,
-            gm: custom_id & 1,
-        }
+            gm: custom_id & 0x01,
+        })
     }
 
     pub fn ephemeral(&self) -> bool {
